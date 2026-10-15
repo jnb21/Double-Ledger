@@ -9,7 +9,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,6 +43,9 @@ class JournalEntryControllerTest {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @Autowired
+    private PostingService postingService;
 
     @Test
     void balancedEntryReturns201AndUpdatesBothBalances() throws Exception {
@@ -195,6 +206,119 @@ class JournalEntryControllerTest {
     void historyOfMissingAccountReturns404() throws Exception {
         mvc.perform(get("/accounts/{id}/postings", Long.MAX_VALUE))
                 .andExpect(status().isNotFound());
+    }
+
+    // --- reversals ---------------------------------------------------------
+
+    @Test
+    void reversalReturns201AndRestoresBalances() throws Exception {
+        long cash = createAccount("ASSET", "CAD");
+        long sales = createAccount("REVENUE", "CAD");
+        long original = idOf(postEntry("Sale", line(cash, "DEBIT", 4_000), line(sales, "CREDIT", 4_000)));
+
+        mvc.perform(post("/journal-entries/{id}/reversal", original))
+                .andExpect(status().isCreated())
+                .andExpect(header().string("Location", matchesPattern("/journal-entries/\\d+")))
+                .andExpect(jsonPath("$.reversesEntryId").value(original))
+                .andExpect(jsonPath("$.description").value("Reversal of entry " + original))
+                .andExpect(jsonPath("$.postings[0].accountId").value(cash))
+                .andExpect(jsonPath("$.postings[0].direction").value("CREDIT"))
+                .andExpect(jsonPath("$.postings[1].direction").value("DEBIT"));
+
+        assertThat(balanceOf(cash)).isZero();
+        assertThat(balanceOf(sales)).isZero();
+        assertThat(balanceOf(cash)).isEqualTo(sumOfPostings(cash));
+    }
+
+    @Test
+    void originalEntryStaysInHistoryAfterReversal() throws Exception {
+        long cash = createAccount("ASSET", "CAD");
+        long sales = createAccount("REVENUE", "CAD");
+        long original = idOf(postEntry("Sale", line(cash, "DEBIT", 4_000), line(sales, "CREDIT", 4_000)));
+
+        mvc.perform(post("/journal-entries/{id}/reversal", original)).andExpect(status().isCreated());
+
+        mvc.perform(get("/journal-entries/{id}", original))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.postings[0].direction").value("DEBIT"))
+                .andExpect(jsonPath("$.postings[0].amount").value(4_000));
+        mvc.perform(get("/accounts/{id}/postings", cash))
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].description").value("Reversal of entry " + original))
+                .andExpect(jsonPath("$[1].description").value("Sale"));
+    }
+
+    @Test
+    void reversingTwiceReturns409AndChangesNothing() throws Exception {
+        long cash = createAccount("ASSET", "CAD");
+        long sales = createAccount("REVENUE", "CAD");
+        long original = idOf(postEntry("Sale", line(cash, "DEBIT", 4_000), line(sales, "CREDIT", 4_000)));
+        mvc.perform(post("/journal-entries/{id}/reversal", original)).andExpect(status().isCreated());
+
+        mvc.perform(post("/journal-entries/{id}/reversal", original))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.detail").value("Journal entry " + original + " has already been reversed"));
+
+        assertThat(balanceOf(cash)).isZero();
+        assertThat(postingCount(cash)).isEqualTo(2);
+    }
+
+    @Test
+    void reversingAReversalReturns422() throws Exception {
+        long cash = createAccount("ASSET", "CAD");
+        long sales = createAccount("REVENUE", "CAD");
+        long original = idOf(postEntry("Sale", line(cash, "DEBIT", 4_000), line(sales, "CREDIT", 4_000)));
+        long reversal = idOf(mvc.perform(post("/journal-entries/{id}/reversal", original)));
+
+        mvc.perform(post("/journal-entries/{id}/reversal", reversal))
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.title").value("Ledger rule violated"));
+    }
+
+    @Test
+    void reversingMissingEntryReturns404() throws Exception {
+        mvc.perform(post("/journal-entries/{id}/reversal", Long.MAX_VALUE))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void simultaneousReversalsPostExactlyOnce() throws Exception {
+        long cash = createAccount("ASSET", "CAD");
+        long sales = createAccount("REVENUE", "CAD");
+        long original = idOf(postEntry("Sale", line(cash, "DEBIT", 4_000), line(sales, "CREDIT", 4_000)));
+
+        int threads = 8;
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        List<Future<String>> results = new ArrayList<>();
+        try {
+            for (int i = 0; i < threads; i++) {
+                Callable<String> attempt = () -> {
+                    start.await();   // every thread waits here, then all go at once
+                    try {
+                        postingService.reverse(original);
+                        return "reversed";
+                    } catch (EntryAlreadyReversedException e) {
+                        return "conflict";
+                    }
+                };
+                results.add(pool.submit(attempt));
+            }
+            start.countDown();
+
+            List<String> outcomes = new ArrayList<>();
+            for (Future<String> result : results) {
+                outcomes.add(result.get(30, TimeUnit.SECONDS));
+            }
+            assertThat(outcomes).containsOnlyOnce("reversed");
+            assertThat(outcomes).filteredOn("conflict"::equals).hasSize(threads - 1);
+        } finally {
+            pool.shutdownNow();
+        }
+
+        assertThat(balanceOf(cash)).isZero();
+        assertThat(postingCount(cash)).isEqualTo(2);
     }
 
     // --- helpers -----------------------------------------------------------

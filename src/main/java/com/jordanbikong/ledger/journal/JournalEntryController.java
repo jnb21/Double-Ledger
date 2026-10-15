@@ -31,6 +31,12 @@ public class JournalEntryController {
         return ResponseEntity.created(URI.create("/journal-entries/" + created.id())).body(created);
     }
 
+    @PostMapping("/{id}/reversal")
+    public ResponseEntity<JournalEntryResponse> reverse(@PathVariable long id) {
+        JournalEntryResponse reversal = JournalEntryResponse.from(service.reverse(id));
+        return ResponseEntity.created(URI.create("/journal-entries/" + reversal.id())).body(reversal);
+    }
+
     @GetMapping("/{id}")
     public JournalEntryResponse get(@PathVariable long id) {
         return JournalEntryResponse.from(service.get(id));

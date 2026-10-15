@@ -2,5 +2,9 @@ package com.jordanbikong.ledger.journal;
 
 public enum Direction {
     DEBIT,
-    CREDIT
+    CREDIT;
+
+    public Direction opposite() {
+        return this == DEBIT ? CREDIT : DEBIT;
+    }
 }

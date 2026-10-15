@@ -47,6 +47,23 @@ public class JournalEntry {
         this.description = description;
     }
 
+    /**
+     * A new entry that cancels this one: the same lines with each direction
+     * flipped, so every balance returns to where it was before.
+     */
+    public JournalEntry reversal() {
+        JournalEntry reversal = new JournalEntry("Reversal of entry " + id);
+        reversal.reversesEntryId = id;
+        for (Posting posting : postings) {
+            reversal.addPosting(posting.getAccountId(), posting.getDirection().opposite(), posting.getAmount());
+        }
+        return reversal;
+    }
+
+    public boolean isReversal() {
+        return reversesEntryId != null;
+    }
+
     public void addPosting(long accountId, Direction direction, long amount) {
         postings.add(new Posting(this, accountId, direction, amount));
     }
