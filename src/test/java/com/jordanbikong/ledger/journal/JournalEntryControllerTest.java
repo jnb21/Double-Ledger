@@ -216,7 +216,7 @@ class JournalEntryControllerTest {
         long sales = createAccount("REVENUE", "CAD");
         long original = idOf(postEntry("Sale", line(cash, "DEBIT", 4_000), line(sales, "CREDIT", 4_000)));
 
-        mvc.perform(post("/journal-entries/{id}/reversal", original))
+        mvc.perform(post("/journal-entries/{id}/reversal", original).header("Idempotency-Key", UUID.randomUUID().toString()))
                 .andExpect(status().isCreated())
                 .andExpect(header().string("Location", matchesPattern("/journal-entries/\\d+")))
                 .andExpect(jsonPath("$.reversesEntryId").value(original))
@@ -236,7 +236,7 @@ class JournalEntryControllerTest {
         long sales = createAccount("REVENUE", "CAD");
         long original = idOf(postEntry("Sale", line(cash, "DEBIT", 4_000), line(sales, "CREDIT", 4_000)));
 
-        mvc.perform(post("/journal-entries/{id}/reversal", original)).andExpect(status().isCreated());
+        mvc.perform(post("/journal-entries/{id}/reversal", original).header("Idempotency-Key", UUID.randomUUID().toString())).andExpect(status().isCreated());
 
         mvc.perform(get("/journal-entries/{id}", original))
                 .andExpect(status().isOk())
@@ -253,9 +253,9 @@ class JournalEntryControllerTest {
         long cash = createAccount("ASSET", "CAD");
         long sales = createAccount("REVENUE", "CAD");
         long original = idOf(postEntry("Sale", line(cash, "DEBIT", 4_000), line(sales, "CREDIT", 4_000)));
-        mvc.perform(post("/journal-entries/{id}/reversal", original)).andExpect(status().isCreated());
+        mvc.perform(post("/journal-entries/{id}/reversal", original).header("Idempotency-Key", UUID.randomUUID().toString())).andExpect(status().isCreated());
 
-        mvc.perform(post("/journal-entries/{id}/reversal", original))
+        mvc.perform(post("/journal-entries/{id}/reversal", original).header("Idempotency-Key", UUID.randomUUID().toString()))
                 .andExpect(status().isConflict())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.detail").value("Journal entry " + original + " has already been reversed"));
@@ -269,16 +269,16 @@ class JournalEntryControllerTest {
         long cash = createAccount("ASSET", "CAD");
         long sales = createAccount("REVENUE", "CAD");
         long original = idOf(postEntry("Sale", line(cash, "DEBIT", 4_000), line(sales, "CREDIT", 4_000)));
-        long reversal = idOf(mvc.perform(post("/journal-entries/{id}/reversal", original)));
+        long reversal = idOf(mvc.perform(post("/journal-entries/{id}/reversal", original).header("Idempotency-Key", UUID.randomUUID().toString())));
 
-        mvc.perform(post("/journal-entries/{id}/reversal", reversal))
+        mvc.perform(post("/journal-entries/{id}/reversal", reversal).header("Idempotency-Key", UUID.randomUUID().toString()))
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.title").value("Ledger rule violated"));
     }
 
     @Test
     void reversingMissingEntryReturns404() throws Exception {
-        mvc.perform(post("/journal-entries/{id}/reversal", Long.MAX_VALUE))
+        mvc.perform(post("/journal-entries/{id}/reversal", Long.MAX_VALUE).header("Idempotency-Key", UUID.randomUUID().toString()))
                 .andExpect(status().isNotFound());
     }
 
@@ -340,7 +340,8 @@ class JournalEntryControllerTest {
         String body = """
                 {"description": "%s", "postings": [%s]}
                 """.formatted(description, String.join(", ", lines));
-        return mvc.perform(post("/journal-entries").contentType(MediaType.APPLICATION_JSON).content(body));
+        return mvc.perform(post("/journal-entries").header("Idempotency-Key", UUID.randomUUID().toString())
+                .contentType(MediaType.APPLICATION_JSON).content(body));
     }
 
     private long balanceOf(long accountId) {
