@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+
+      # Compiles and runs every test. Testcontainers starts a real Postgres 16
+      # using the Docker engine that GitHub's Ubuntu runners provide.
+      - name: Build and test
+        run: ./mvnw -B verify
