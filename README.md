@@ -59,6 +59,17 @@ curl localhost:8080/actuator/health
 Without compose: `./mvnw spring-boot:test-run` starts the app with a throwaway
 Postgres from Testcontainers.
 
+### Try it: the PayFriend demo
+
+`scripts/payfriend-demo.sh` plays a small wallet app, "PayFriend", calling the ledger:
+user wallets, a deposit, a payment with a fee, a network retry that doesn't double-charge,
+an "insufficient funds" rejection, a fraud reversal (and a refused second one), a withdrawal,
+the user's history, and a final check that the books balance. Run it while the app is up:
+
+```bash
+./scripts/payfriend-demo.sh            # PAUSE=1 to step through one request at a time
+```
+
 Run the tests (Docker must be running):
 
 ```bash
