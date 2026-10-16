@@ -29,7 +29,8 @@ public class AccountService {
     @Transactional
     public Account create(CreateAccountRequest request) {
         try {
-            return accounts.saveAndFlush(new Account(request.name(), request.type(), request.currency()));
+            return accounts.saveAndFlush(new Account(request.name(), request.type(), request.currency(),
+                    Boolean.TRUE.equals(request.allowNegative())));
         } catch (DataIntegrityViolationException e) {
             if (isUniqueNameViolation(e)) {
                 throw new DuplicateAccountNameException(request.name(), e);

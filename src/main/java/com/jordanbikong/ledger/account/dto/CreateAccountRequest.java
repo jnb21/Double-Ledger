@@ -7,9 +7,13 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
-/** Body of POST /accounts. Validated before it reaches the service. */
+/**
+ * Body of POST /accounts. Validated before it reaches the service.
+ * allowNegative is optional and defaults to false.
+ */
 public record CreateAccountRequest(
         @NotBlank @Size(max = 100) String name,
         @NotNull AccountType type,
-        @NotNull @Pattern(regexp = "^[A-Z]{3}$", message = "must be a 3-letter uppercase ISO 4217 code") String currency) {
+        @NotNull @Pattern(regexp = "^[A-Z]{3}$", message = "must be a 3-letter uppercase ISO 4217 code") String currency,
+        Boolean allowNegative) {
 }

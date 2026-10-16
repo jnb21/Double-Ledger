@@ -208,6 +208,67 @@ class JournalEntryControllerTest {
                 .andExpect(status().isNotFound());
     }
 
+    // --- overdraft ----------------------------------------------------------
+
+    @Test
+    void withdrawalBeyondBalanceReturns422AndChangesNothing() throws Exception {
+        long cash = createAccount("ASSET", "CAD");
+        long equity = createAccount("EQUITY", "CAD");
+        long rent = createAccount("EXPENSE", "CAD");
+        postEntry("Owner invests", line(cash, "DEBIT", 1_000), line(equity, "CREDIT", 1_000))
+                .andExpect(status().isCreated());
+
+        postEntry("Rent", line(rent, "DEBIT", 1_001), line(cash, "CREDIT", 1_001))
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.detail").value(
+                        "Insufficient funds in account " + cash + ": balance 1000, change -1001"));
+
+        assertThat(balanceOf(cash)).isEqualTo(1_000);
+        assertThat(balanceOf(rent)).isZero();
+    }
+
+    @Test
+    void withdrawalOfExactBalanceIsAllowed() throws Exception {
+        long cash = createAccount("ASSET", "CAD");
+        long equity = createAccount("EQUITY", "CAD");
+        long rent = createAccount("EXPENSE", "CAD");
+        postEntry("Owner invests", line(cash, "DEBIT", 1_000), line(equity, "CREDIT", 1_000));
+
+        postEntry("Rent", line(rent, "DEBIT", 1_000), line(cash, "CREDIT", 1_000))
+                .andExpect(status().isCreated());
+
+        assertThat(balanceOf(cash)).isZero();
+    }
+
+    @Test
+    void accountAllowedNegativeCanBeOverdrawn() throws Exception {
+        long creditLine = createAccount("ASSET", "CAD", true);
+        long rent = createAccount("EXPENSE", "CAD");
+
+        postEntry("Rent on credit", line(rent, "DEBIT", 700), line(creditLine, "CREDIT", 700))
+                .andExpect(status().isCreated());
+
+        assertThat(balanceOf(creditLine)).isEqualTo(-700);
+    }
+
+    @Test
+    void reversalThatWouldOverdrawReturns422() throws Exception {
+        long cash = createAccount("ASSET", "CAD");
+        long sales = createAccount("REVENUE", "CAD");
+        long rent = createAccount("EXPENSE", "CAD");
+        long sale = idOf(postEntry("Sale", line(cash, "DEBIT", 500), line(sales, "CREDIT", 500)));
+        postEntry("Rent", line(rent, "DEBIT", 500), line(cash, "CREDIT", 500)).andExpect(status().isCreated());
+
+        // The sale's cash is already spent, so undoing it would take Cash to -500.
+        mvc.perform(post("/journal-entries/{id}/reversal", sale)
+                        .header("Idempotency-Key", UUID.randomUUID().toString()))
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.detail").value(
+                        "Insufficient funds in account " + cash + ": balance 0, change -500"));
+
+        assertThat(balanceOf(cash)).isZero();
+    }
+
     // --- reversals ---------------------------------------------------------
 
     @Test
@@ -324,9 +385,13 @@ class JournalEntryControllerTest {
     // --- helpers -----------------------------------------------------------
 
     private long createAccount(String type, String currency) throws Exception {
+        return createAccount(type, currency, false);
+    }
+
+    private long createAccount(String type, String currency, boolean allowNegative) throws Exception {
         String body = """
-                {"name": "%s-%s", "type": "%s", "currency": "%s"}
-                """.formatted(type, UUID.randomUUID(), type, currency);
+                {"name": "%s-%s", "type": "%s", "currency": "%s", "allowNegative": %b}
+                """.formatted(type, UUID.randomUUID(), type, currency, allowNegative);
         return idOf(mvc.perform(post("/accounts").contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isCreated()));
     }

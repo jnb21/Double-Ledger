@@ -141,6 +141,26 @@ class SchemaTest {
                 .satisfies(e -> assertSqlState(e, "23505")); // unique_violation
     }
 
+    @Test
+    void balanceCannotGoNegativeEvenWithPlainSql() {
+        long cash = createAccount("ASSET", "CAD");
+
+        assertThatThrownBy(() -> jdbc.update("UPDATE accounts SET balance = -1 WHERE id = ?", cash))
+                .satisfies(e -> assertSqlState(e, CHECK_VIOLATION));
+    }
+
+    @Test
+    void accountAllowedNegativeCanGoBelowZero() {
+        long creditLine = jdbc.queryForObject(
+                "INSERT INTO accounts (name, type, currency, allow_negative) VALUES (?, 'ASSET', 'CAD', true) RETURNING id",
+                Long.class, "credit-line-" + UUID.randomUUID());
+
+        jdbc.update("UPDATE accounts SET balance = -500 WHERE id = ?", creditLine);
+
+        assertThat(jdbc.queryForObject("SELECT balance FROM accounts WHERE id = ?", Long.class, creditLine))
+                .isEqualTo(-500);
+    }
+
     // --- helpers -----------------------------------------------------------
 
     private long createAccount(String type, String currency) {

@@ -12,6 +12,7 @@ public record AccountResponse(
         AccountType type,
         String currency,
         long balance,
+        boolean allowNegative,
         Instant createdAt) {
 
     public static AccountResponse from(Account account) {
@@ -21,6 +22,7 @@ public record AccountResponse(
                 account.getType(),
                 account.getCurrency(),
                 account.getBalance(),
+                account.isAllowNegative(),
                 account.getCreatedAt());
     }
 }

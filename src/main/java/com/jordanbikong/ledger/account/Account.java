@@ -39,6 +39,10 @@ public class Account {
     @Column(nullable = false)
     private long balance;
 
+    /** If false, posting may never take the balance below zero (V2 CHECK constraint). */
+    @Column(name = "allow_negative", nullable = false)
+    private boolean allowNegative;
+
     /** Set by the database (DEFAULT now()) and read back after insert. */
     @Generated
     @Column(name = "created_at", nullable = false, insertable = false, updatable = false)
@@ -48,10 +52,11 @@ public class Account {
     protected Account() {
     }
 
-    public Account(String name, AccountType type, String currency) {
+    public Account(String name, AccountType type, String currency, boolean allowNegative) {
         this.name = name;
         this.type = type;
         this.currency = currency;
+        this.allowNegative = allowNegative;
         this.balance = 0;
     }
 
@@ -73,6 +78,10 @@ public class Account {
 
     public long getBalance() {
         return balance;
+    }
+
+    public boolean isAllowNegative() {
+        return allowNegative;
     }
 
     public Instant getCreatedAt() {

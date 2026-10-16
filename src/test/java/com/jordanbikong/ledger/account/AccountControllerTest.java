@@ -44,7 +44,19 @@ class AccountControllerTest {
                 .andExpect(jsonPath("$.type").value("ASSET"))
                 .andExpect(jsonPath("$.currency").value("CAD"))
                 .andExpect(jsonPath("$.balance").value(0))
+                .andExpect(jsonPath("$.allowNegative").value(false))
                 .andExpect(jsonPath("$.createdAt").isNotEmpty());
+    }
+
+    @Test
+    void createAcceptsAllowNegative() throws Exception {
+        String body = """
+                {"name": "%s", "type": "ASSET", "currency": "CAD", "allowNegative": true}
+                """.formatted(uniqueName("Credit line"));
+
+        mvc.perform(post("/accounts").contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.allowNegative").value(true));
     }
 
     @Test
